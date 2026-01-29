@@ -91,6 +91,7 @@ aes256cbc: $(AES256CBC_LIB)
 $(RSA3072_LIB): $(RSA3072_OBJ) | $(LIB_DIR) $(INTERMEDIATE_DIR)
 	$(info >> Archiving $(RSA3072_LIB))
 	@$(ARCHIVE) --create $@ $^
+	@cmd /c copy /Y "$(RSA3072_DIR)\rsa3072.h" "$(LIB_DIR)\" > nul
 	$(info >> Generating intermediate - rsa3072)
 	@$(FROMELF) --text -s $@ > $(INTERMEDIATE_DIR)\rsa3072.txt
 	@$(FROMELF) --text -z $@ > $(INTERMEDIATE_DIR)\rsa3072.lst
@@ -98,6 +99,7 @@ $(RSA3072_LIB): $(RSA3072_OBJ) | $(LIB_DIR) $(INTERMEDIATE_DIR)
 $(AES256CBC_LIB): $(AES256CBC_OBJ) | $(LIB_DIR) $(INTERMEDIATE_DIR)
 	$(info >> Archiving $(AES256CBC_LIB))
 	@$(ARCHIVE) --create $@ $^
+	@cmd /c copy /Y "$(AES256CBC_DIR)\aes256cbc.h" "$(LIB_DIR)\" > nul
 	$(info >> Generating intermediate - aes256cbc)
 	@$(FROMELF) --text -s $@ > $(INTERMEDIATE_DIR)\aes256cbc.txt
 	@$(FROMELF) --text -z $@ > $(INTERMEDIATE_DIR)\aes256cbc.lst
