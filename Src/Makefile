@@ -30,7 +30,7 @@ RSA3072_DIR     = rsa3072
 AES256CBC_DIR   = aes256cbc
 
 # OpenSSL paths (adjust for your installation)
-OPENSSL_DIR = C:/Program Files (x86)/OpenSSL-Win32
+OPENSSL_DIR = C:/Program Files/OpenSSL-Win64
 OPENSSL_INCLUDES = -I. -I$(RSA3072_DIR) -I$(AES256CBC_DIR) -I"$(OPENSSL_DIR)/include"
 OPENSSL_LDFLAGS = -L. -L"$(OPENSSL_DIR)/lib" -lssl -lcrypto
 

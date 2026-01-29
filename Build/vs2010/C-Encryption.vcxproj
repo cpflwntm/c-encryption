@@ -1,0 +1,104 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="12.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="All|x64">
+      <Configuration>All</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\Src\libcrypto-3-x64.def" />
+    <None Include="..\..\Src\libcrypto.a" />
+    <None Include="..\..\Src\libssl-3-x64.def" />
+    <None Include="..\..\Src\libssl.a" />
+    <None Include="..\..\Src\Makefile" />
+    <None Include="..\..\Src\README.md" />
+    <None Include="..\..\Src\test\message.bin" />
+    <None Include="..\..\Src\test\private.pem" />
+    <None Include="..\..\Src\test\public.pem" />
+    <None Include="..\..\Src\test\public_n.bin" />
+    <None Include="..\..\Src\test\signature.bin" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\Src\aes256cbc\aes256cbc.c" />
+    <ClCompile Include="..\..\Src\main.c" />
+    <ClCompile Include="..\..\Src\rsa3072\bn384.c" />
+    <ClCompile Include="..\..\Src\rsa3072\rsa3072.c" />
+    <ClCompile Include="..\..\Src\rsa3072\sha256.c" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\Src\aes256cbc\aes256cbc.h" />
+    <ClInclude Include="..\..\Src\rsa3072\bn384.h" />
+    <ClInclude Include="..\..\Src\rsa3072\rsa3072.h" />
+    <ClInclude Include="..\..\Src\rsa3072\sha256.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="..\..\Src\libcrypto.lib" />
+    <Library Include="..\..\Src\libssl.lib" />
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{CB920EB7-202C-4CAE-BADE-CC070CF0A560}</ProjectGuid>
+    <RootNamespace>C-Encryption</RootNamespace>
+    <SccProjectName>
+    </SccProjectName>
+    <SccAuxPath>
+    </SccAuxPath>
+    <SccLocalPath>
+    </SccLocalPath>
+    <SccProvider>
+    </SccProvider>
+    <ProjectName>C-Encryption</ProjectName>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='All|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <CharacterSet>MultiByte</CharacterSet>
+    <PlatformToolset>v100</PlatformToolset>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Condition="'$(Configuration)|$(Platform)'=='All|x64'" Label="PropertySheets">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup>
+    <_ProjectFileVersion>10.0.30319.1</_ProjectFileVersion>
+    <OutDir Condition="'$(Configuration)|$(Platform)'=='All|x64'">$(SolutionDir)$(Configuration)\</OutDir>
+    <IntDir Condition="'$(Configuration)|$(Platform)'=='All|x64'">$(Configuration)\</IntDir>
+    <LocalDebuggerWorkingDirectory Condition="'$(Configuration)|$(Platform)'=='All|x64'">..\..\Src</LocalDebuggerWorkingDirectory>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='All|x64'">
+    <ClCompile>
+      <Optimization>Disabled</Optimization>
+      <AdditionalIncludeDirectories>C:\Program Files\OpenSSL-Win64\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <IgnoreStandardIncludePath>false</IgnoreStandardIncludePath>
+      <MinimalRebuild>false</MinimalRebuild>
+      <BasicRuntimeChecks>EnableFastChecks</BasicRuntimeChecks>
+      <RuntimeLibrary>MultiThreadedDebugDLL</RuntimeLibrary>
+      <WarningLevel>Level4</WarningLevel>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DisableSpecificWarnings>4127;4100;%(DisableSpecificWarnings)</DisableSpecificWarnings>
+      <PreprocessorDefinitions>%(PreprocessorDefinitions);</PreprocessorDefinitions>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+    </ClCompile>
+    <Link>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <TargetMachine>MachineX64</TargetMachine>
+      <SubSystem>Console</SubSystem>
+      <RandomizedBaseAddress>false</RandomizedBaseAddress>
+      <BaseAddress>0x20000</BaseAddress>
+      <FixedBaseAddress>true</FixedBaseAddress>
+      <GenerateMapFile>false</GenerateMapFile>
+      <AdditionalLibraryDirectories>..\..\Src;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>libssl.lib;libcrypto.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
+    <PreBuildEvent>
+      <Command>
+      </Command>
+    </PreBuildEvent>
+  </ItemDefinitionGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

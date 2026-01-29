@@ -1,0 +1,91 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Src">
+      <UniqueIdentifier>{acb27d49-f93f-4c7b-a547-df7f96a63c18}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Src\test">
+      <UniqueIdentifier>{f81871b9-feab-4745-a98c-0083651700a2}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Src\rsa3072">
+      <UniqueIdentifier>{da57833e-6d6c-4848-903d-3c7cbae05b0e}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Src\aes256cbc">
+      <UniqueIdentifier>{93a3387a-891e-4fab-83b9-342ad2b07120}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\Src\libcrypto.a">
+      <Filter>Src</Filter>
+    </None>
+    <None Include="..\..\Src\libcrypto-3-x64.def">
+      <Filter>Src</Filter>
+    </None>
+    <None Include="..\..\Src\libssl.a">
+      <Filter>Src</Filter>
+    </None>
+    <None Include="..\..\Src\libssl-3-x64.def">
+      <Filter>Src</Filter>
+    </None>
+    <None Include="..\..\Src\Makefile">
+      <Filter>Src</Filter>
+    </None>
+    <None Include="..\..\Src\README.md">
+      <Filter>Src</Filter>
+    </None>
+    <None Include="..\..\Src\test\message.bin">
+      <Filter>Src\test</Filter>
+    </None>
+    <None Include="..\..\Src\test\private.pem">
+      <Filter>Src\test</Filter>
+    </None>
+    <None Include="..\..\Src\test\public.pem">
+      <Filter>Src\test</Filter>
+    </None>
+    <None Include="..\..\Src\test\public_n.bin">
+      <Filter>Src\test</Filter>
+    </None>
+    <None Include="..\..\Src\test\signature.bin">
+      <Filter>Src\test</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\Src\main.c">
+      <Filter>Src</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\aes256cbc\aes256cbc.c">
+      <Filter>Src\aes256cbc</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\rsa3072\bn384.c">
+      <Filter>Src\rsa3072</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\rsa3072\rsa3072.c">
+      <Filter>Src\rsa3072</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\rsa3072\sha256.c">
+      <Filter>Src\rsa3072</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\Src\aes256cbc\aes256cbc.h">
+      <Filter>Src\aes256cbc</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\rsa3072\bn384.h">
+      <Filter>Src\rsa3072</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\rsa3072\rsa3072.h">
+      <Filter>Src\rsa3072</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\rsa3072\sha256.h">
+      <Filter>Src\rsa3072</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="..\..\Src\libcrypto.lib">
+      <Filter>Src</Filter>
+    </Library>
+    <Library Include="..\..\Src\libssl.lib">
+      <Filter>Src</Filter>
+    </Library>
+  </ItemGroup>
+</Project>
