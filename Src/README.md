@@ -348,30 +348,53 @@ LDFLAGS = -Wl,--gc-sections -specs=nosys.specs
 | aes256cbc/ | ~2 KB | ~0.5 KB | AES-256-CBC 복호화 |
 | **합계** | **~5.4 KB** | - | 전체 (개별 사용 가능) |
 
-## 8. 문제 해결
+## 8. T32 디버깅
 
-### 8.1. 빌드 에러: "openssl/evp.h not found"
+`.lib`를 `-g` 옵션으로 빌드하면 디버그 정보가 `.o` -> `.lib` -> `.axf` 순서로 전달됩니다.
+`.axf`에 포함된 소스 경로가 현재 PC와 다를 경우, 다음 방법으로 소스 파일을 연결할 수 있습니다.
+
+### 방법 1: 검색 경로 추가 (원본 경로를 모를 때)
+
+아래 명령어로 검색 경로를 추가하면 T32가 파일명 기준으로 등록된 디렉토리에서 자동 검색합니다.
+
+```
+SYMBOL.SourcePATH.SetDir "[프로젝트 경로]\Src\rsa3072"
+SYMBOL.SourcePATH.SetDir + "[프로젝트 경로]\Src\aes256cbc"
+```
+
+### 방법 2: 경로 변환 (원본 경로를 알 때)
+
+원본 빌드 경로는 `fromelf --text -e output.axf` 또는 T32의 `sYmbol.SourcePath.List`로 확인합니다.
+확인된 원본 빌드 경로를 아래 명령어로 변환합니다.
+
+```
+SYStem.SourcePath.Translate "[원본 프로젝트 경로]\81_C-Encryption\Src" "[현재 프로젝트 경로]\Src"
+```
+
+## 9. 문제 해결
+
+### 9.1. 빌드 에러: "openssl/evp.h not found"
 
 OpenSSL 헤더 경로가 설정되지 않았습니다. Makefile의 `OPENSSL_DIR`을 수정하세요.
 
-### 8.2. RSA 서명 검증 실패
+### 9.2. RSA 서명 검증 실패
 
 - 공개키 N이 서명 생성에 사용된 키와 일치하는지 확인
 - 메시지가 정확히 일치하는지 확인 (trailing newline 주의)
 - 서명 데이터가 384 bytes인지 확인
 
-### 8.3. AES 복호화 실패
+### 9.3. AES 복호화 실패
 
 - 키와 IV가 암호화 시 사용된 것과 동일한지 확인
 - 입력 데이터가 16바이트 배수인지 확인
 - Big-endian/Little-endian 바이트 순서 확인
 
-## 9. 라이센스
+## 10. 라이센스
 
 - **rsa3072 라이브러리**: Public Domain
 - **aes256cbc 라이브러리**: Public Domain
 
-## 10. 보안 참고사항
+## 11. 보안 참고사항
 
 ### RSA 관련
 
