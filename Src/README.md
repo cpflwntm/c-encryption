@@ -1,0 +1,389 @@
+# RSA 3072 Signature Verification & AES-256-CBC Decryption
+
+RSA 3072 서명 검증 및 AES-256-CBC 복호화 라이브러리 (F/W 포팅용)
+
+## 1. 개요
+
+rsa3072 및 aes256cbc 라이브러리 검증을 위한 통합 테스트 프로그램입니다.
+
+프로그램 실행 시 다음 순서로 테스트를 수행합니다:
+
+**RSA 3072 서명 검증 테스트:**
+1. **Static 테스트**: test/ 폴더의 사전 생성된 데이터로 기본 검증
+2. **Dynamic 테스트**: OpenSSL로 랜덤 키/서명 생성 후 rsa3072 라이브러리로 검증
+
+**AES-256-CBC 복호화 테스트:**
+1. **Dynamic 테스트**: OpenSSL로 암호화 후 aes256cbc 라이브러리로 복호화
+
+각 테스트에서 수행하는 검증:
+- RSA: 유효한 서명, 손상된 메시지, 손상된 서명
+- AES: 정상 복호화, 잘못된 키, 잘못된 IV, 손상된 암호문
+
+**디렉토리 구조:**
+```
+Src/
+├── main.c                  # 통합 테스트 프로그램
+├── Makefile
+├── rsa3072/                # Minimal RSA 3072 라이브러리 (~3.4 KB)
+│   ├── rsa3072.h           # Public API
+│   ├── rsa3072.c           # 서명 검증 구현
+│   ├── bn384.h             # BigNum 타입 정의
+│   ├── bn384.c             # BigNum 연산 (Montgomery 곱셈)
+│   ├── sha256.h            # SHA-256 API
+│   └── sha256.c            # SHA-256 구현
+├── aes256cbc/              # Minimal AES-256-CBC 라이브러리 (~2 KB)
+│   ├── aes256cbc.h         # Public API
+│   └── aes256cbc.c         # AES-256-CBC 복호화 구현
+├── test/                   # Static 테스트 데이터 (RSA용)
+│   ├── private.pem         # RSA 3072 개인키 (테스트용)
+│   ├── public.pem          # RSA 3072 공개키
+│   ├── public_n.bin        # 공개키 Modulus N (384 bytes)
+│   ├── message.bin         # 테스트 메시지
+│   └── signature.bin       # RSA-SHA256 서명 (384 bytes)
+├── libssl.a                # OpenSSL 라이브러리
+└── libcrypto.a
+```
+
+## 2. 테스트 준비
+
+### 2.1. RSA 테스트 데이터 파일
+
+| 파일 | 크기 | 설명 |
+|------|------|------|
+| private.pem | - | RSA 3072 개인키 (PEM 형식) |
+| public.pem | - | RSA 3072 공개키 (PEM 형식) |
+| public_n.bin | 384 bytes | 공개키 Modulus N (바이너리) |
+| message.bin | 16384 bytes | 테스트 메시지 (16 KiB 랜덤 데이터) |
+| signature.bin | 384 bytes | message.bin의 RSA-SHA256 서명 |
+
+### 2.2. RSA 테스트 데이터 생성
+
+```bash
+# 새 키 쌍 생성 (-F4: 공개 지수 E = 65537)
+openssl genrsa -F4 -out test/private.pem 3072
+openssl rsa -in test/private.pem -pubout -out test/public.pem
+
+# 공개키 정보 확인 (N, E)
+openssl rsa -in test/public.pem -pubin -text -noout
+
+# Modulus N 추출 (바이너리)
+openssl rsa -in test/public.pem -pubin -modulus -noout | cut -d= -f2 | xxd -r -p > test/public_n.bin
+
+# 새 메시지 생성 (Linux/Git Bash)
+dd if=/dev/urandom of=test/message.bin bs=1024 count=16
+
+# 메시지 서명 (PKCS#1 v1.5 + SHA-256)
+openssl dgst -sha256 -sign test/private.pem -out test/signature.bin test/message.bin
+
+# 서명 검증
+openssl dgst -sha256 -verify test/public.pem -signature test/signature.bin test/message.bin
+```
+
+### 2.3. AES-256-CBC 테스트 (OpenSSL 명령행)
+
+```bash
+# 암호화 (no padding, 입력은 16바이트 배수여야 함)
+openssl enc -aes-256-cbc -K <hex_key> -iv <hex_iv> -in plaintext.bin -out ciphertext.bin -nopad
+
+# 복호화
+openssl enc -d -aes-256-cbc -K <hex_key> -iv <hex_iv> -in ciphertext.bin -out decrypted.bin -nopad
+```
+
+### 2.4. OpenSSL 설정 (Windows)
+
+OpenSSL 테스트 빌드에는 OpenSSL 헤더가 필요합니다. Makefile의 `OPENSSL_DIR`을 수정하세요:
+
+```makefile
+# Makefile 내 OpenSSL 경로 (설치 위치에 맞게 수정)
+OPENSSL_DIR = C:/Program Files (x86)/OpenSSL-Win32
+```
+
+## 3. 빠른 시작
+
+```bash
+# 빌드
+make
+
+# 실행 (RSA + AES 테스트 순차 수행)
+./openssl_test
+
+# 코드 크기 확인
+make rsa3072-size
+make aes256cbc-size
+```
+
+## 4. 빌드 타겟
+
+| 타겟 | 설명 |
+|------|------|
+| `make` 또는 `make all` | 통합 테스트 프로그램 빌드 (기본) |
+| `make test` | 빌드 후 실행 |
+| `make clean` | 빌드 결과물 삭제 |
+| `make help` | 도움말 출력 |
+
+**RSA3072 라이브러리:**
+
+| 타겟 | 설명 |
+|------|------|
+| `make rsa3072` | RSA3072 라이브러리 오브젝트 빌드 |
+| `make rsa3072-test` | RSA3072 단독 테스트 빌드 및 실행 |
+| `make rsa3072-size` | RSA3072 코드 크기 확인 |
+| `make rsa3072-clean` | RSA3072 오브젝트 삭제 |
+
+**AES256CBC 라이브러리:**
+
+| 타겟 | 설명 |
+|------|------|
+| `make aes256cbc` | AES256CBC 라이브러리 오브젝트 빌드 |
+| `make aes256cbc-size` | AES256CBC 코드 크기 확인 |
+| `make aes256cbc-clean` | AES256CBC 오브젝트 삭제 |
+
+## 5. Minimal RSA3072 라이브러리
+
+### 5.1. API
+
+```c
+#include "rsa3072.h"
+
+/**
+ * RSA 3072 서명 검증
+ *
+ * @param p_public_n   공개키 Modulus N (384 bytes, big-endian)
+ * @param p_message    검증할 메시지
+ * @param message_len  메시지 길이
+ * @param p_signature  서명 (384 bytes, big-endian)
+ * @return             RSA3072_OK(0): 성공, 기타: 실패
+ */
+int rsa3072_verify(const uint8_t* p_public_n,
+                   const uint8_t* p_message,
+                   size_t         message_len,
+                   const uint8_t* p_signature);
+```
+
+### 5.2. 사용 예시
+
+```c
+#include "rsa3072.h"
+
+int result = rsa3072_verify(public_n,      /* 384 bytes */
+                            message,
+                            message_len,
+                            signature);    /* 384 bytes */
+
+if (result == RSA3072_OK) {
+    /* 서명 검증 성공 */
+} else {
+    /* 서명 검증 실패 */
+}
+```
+
+### 5.3. 기술 사양
+
+| 항목 | 값 |
+|------|------|
+| 키 크기 | RSA 3072-bit |
+| 해시 알고리즘 | SHA-256 |
+| 패딩 방식 | PKCS#1 v1.5 |
+| 공개 지수 (E) | 65537 (0x10001) 고정 |
+| 서명 크기 | 384 bytes |
+
+### 5.4. 메모리 사용량
+
+| 항목 | 크기 |
+|------|------|
+| 코드 크기 (ARM Thumb-2, -Os) | ~3.4 KB |
+| 스택 사용량 (worst-case) | ~3.8 KB |
+| 정적 데이터 | ~19 bytes |
+
+**주요 데이터 구조:**
+
+| 타입 | 크기 | 설명 |
+|------|------|------|
+| `bn384_t` | 384 bytes | 3072-bit 정수 (96 words) |
+| `bn768_t` | 768 bytes | 곱셈 결과용 (192 words) |
+| `bn_mont_ctx` | 772 bytes | Montgomery 컨텍스트 |
+| `sha256_ctx` | 104 bytes | SHA-256 상태 |
+
+**스택 사용량 상세:**
+
+```
+rsa3072_verify()           : 2,344 bytes
+  +-- bn_mont_ctx ctx       :   772 bytes
+  +-- bn384_t n, sig, dec   : 1,152 bytes (384 x 3)
+  +-- hash[32], decrypted[] :   416 bytes
+  +-- bn_modexp_e65537()    :   772 bytes
+       +-- bn384_t x, a_mont:   768 bytes
+       +-- bn_mont_mul()    :   768 bytes
+            +-- bn768_t t   :   768 bytes
+--------------------------------------------
+총합 (worst-case)          : ~3,900 bytes = 3.8 KB
+```
+
+> **Note**: 임베디드 시스템 포팅 시 **최소 4 KB** 스택을 확보하세요.
+
+## 6. Minimal AES256CBC 라이브러리
+
+### 6.1. API
+
+```c
+#include "aes256cbc.h"
+
+/**
+ * AES-256-CBC 복호화 (no padding)
+ *
+ * @param p_key         암호화 키 (32 bytes)
+ * @param p_iv          초기화 벡터 (16 bytes)
+ * @param p_ciphertext  암호문 (16바이트 배수)
+ * @param len           데이터 길이 (16의 배수)
+ * @param p_plaintext   출력 버퍼 (암호문과 같은 크기)
+ * @return              AES256_OK(0): 성공, 기타: 실패
+ */
+int aes256_cbc_decrypt(const uint8_t* p_key,
+                       const uint8_t* p_iv,
+                       const uint8_t* p_ciphertext,
+                       size_t         len,
+                       uint8_t*       p_plaintext);
+```
+
+### 6.2. 사용 예시
+
+```c
+#include "aes256cbc.h"
+
+uint8_t key[32] = { ... };        /* AES-256 키 */
+uint8_t iv[16] = { ... };         /* 초기화 벡터 */
+uint8_t ciphertext[1024] = { ... };
+uint8_t plaintext[1024];
+
+int result = aes256_cbc_decrypt(key, iv, ciphertext, 1024, plaintext);
+
+if (result == AES256_OK) {
+    /* 복호화 성공 */
+} else {
+    /* 복호화 실패 */
+}
+```
+
+### 6.3. 기술 사양
+
+| 항목 | 값 |
+|------|------|
+| 알고리즘 | AES-256 |
+| 모드 | CBC (Cipher Block Chaining) |
+| 키 크기 | 256 bits (32 bytes) |
+| 블록 크기 | 128 bits (16 bytes) |
+| IV 크기 | 128 bits (16 bytes) |
+| 라운드 수 | 14 |
+| 패딩 | 없음 (입력은 16바이트 배수) |
+
+### 6.4. 메모리 사용량
+
+| 항목 | 크기 |
+|------|------|
+| 코드 크기 (ARM Thumb-2, -Os) | ~2 KB |
+| 스택 사용량 | ~500 bytes |
+| 정적 데이터 (S-box, InvS-box, Rcon) | ~523 bytes |
+
+**주요 데이터 구조:**
+
+| 타입 | 크기 | 설명 |
+|------|------|------|
+| round_keys | 240 bytes | 확장된 키 (60 words) |
+| state | 16 bytes | AES 상태 (4x4 bytes) |
+| prev_block | 16 bytes | CBC용 이전 블록 |
+
+**스택 사용량 상세:**
+
+```
+aes256_cbc_decrypt()       : ~500 bytes
+  +-- round_keys[240]      :  240 bytes
+  +-- prev_block[16]       :   16 bytes
+  +-- curr_block[16]       :   16 bytes
+  +-- aes_decrypt_block()  : ~200 bytes
+       +-- state[16]       :   16 bytes
+       +-- temp variables  :  ~50 bytes
+--------------------------------------------
+총합 (worst-case)          : ~500 bytes
+```
+
+> **Note**: 임베디드 시스템 포팅 시 **최소 1 KB** 스택을 확보하세요.
+
+### 6.5. 보안 특성
+
+- **Constant-time 구현**: 테이블 룩업 기반으로 타이밍 공격에 대한 기본적인 저항성
+- **메모리 클리어**: 함수 종료 시 round_keys 등 민감한 데이터를 스택에서 제거
+- **In-place 복호화**: p_plaintext와 p_ciphertext가 같은 버퍼를 사용 가능
+
+## 7. F/W 포팅 가이드
+
+### 7.1. RSA3072 포팅
+
+1. `rsa3072/` 폴더의 파일을 프로젝트에 추가:
+   - `rsa3072.c`, `rsa3072.h`
+   - `bn384.c`, `bn384.h`
+   - `sha256.c`, `sha256.h`
+
+2. 스택 크기 확인: **최소 4 KB**
+
+### 7.2. AES256CBC 포팅
+
+1. `aes256cbc/` 폴더의 파일을 프로젝트에 추가:
+   - `aes256cbc.c`, `aes256cbc.h`
+
+2. 스택 크기 확인: **최소 1 KB**
+
+### 7.3. 컴파일러 설정 예시 (Cortex-M3)
+
+```makefile
+CC = arm-none-eabi-gcc
+CFLAGS = -mcpu=cortex-m3 -mthumb -Os -ffunction-sections -fdata-sections
+LDFLAGS = -Wl,--gc-sections -specs=nosys.specs
+```
+
+### 7.4. 라이브러리 크기 요약
+
+| 라이브러리 | 코드 크기 | 스택 | 용도 |
+|-----------|----------|------|------|
+| rsa3072/ | ~3.4 KB | ~4 KB | RSA-3072 서명 검증 + SHA-256 |
+| aes256cbc/ | ~2 KB | ~0.5 KB | AES-256-CBC 복호화 |
+| **합계** | **~5.4 KB** | - | 전체 (개별 사용 가능) |
+
+## 8. 문제 해결
+
+### 8.1. 빌드 에러: "openssl/evp.h not found"
+
+OpenSSL 헤더 경로가 설정되지 않았습니다. Makefile의 `OPENSSL_DIR`을 수정하세요.
+
+### 8.2. RSA 서명 검증 실패
+
+- 공개키 N이 서명 생성에 사용된 키와 일치하는지 확인
+- 메시지가 정확히 일치하는지 확인 (trailing newline 주의)
+- 서명 데이터가 384 bytes인지 확인
+
+### 8.3. AES 복호화 실패
+
+- 키와 IV가 암호화 시 사용된 것과 동일한지 확인
+- 입력 데이터가 16바이트 배수인지 확인
+- Big-endian/Little-endian 바이트 순서 확인
+
+## 9. 라이센스
+
+- **rsa3072 라이브러리**: Public Domain
+- **aes256cbc 라이브러리**: Public Domain
+
+## 10. 보안 참고사항
+
+### RSA 관련
+
+test/ 폴더의 개인키는 **테스트 목적 전용**입니다.
+
+프로덕션 사용 시:
+1. 안전한 환경에서 키 생성
+2. 개인키는 안전하게 보관 (HSM 권장)
+3. 검증 대상에는 공개키 Modulus N만 배포
+
+### AES 관련
+
+- 키와 IV는 안전하게 생성 및 보관
+- IV는 암호화마다 고유해야 함 (재사용 금지)
+- 키 배포 시 안전한 채널 사용
