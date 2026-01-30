@@ -102,7 +102,7 @@ typedef struct {
  *
  * This is prepended to the hash in PKCS#1 v1.5 padding.
  */
-static const uint8_t SHA256_DIGEST_INFO[19] = {
+const uint8_t SHA256_DIGEST_INFO[19] = {
     0x30, 0x31,                         /* SEQUENCE, 49 bytes total */
     0x30, 0x0D,                         /* SEQUENCE, 13 bytes (AlgorithmIdentifier) */
     0x06, 0x09,                         /* OID, 9 bytes */
@@ -234,7 +234,7 @@ secure_memcpy                  (void*                   dst,
                                 size_t                  len)
 {
     volatile uint8_t*           d = (volatile uint8_t*)dst;
-    const volatile uint8_t*    s = (const volatile uint8_t*)src;
+    const volatile uint8_t*     s = (const volatile uint8_t*)src;
     size_t                      i;
 
     for (i = 0; i < len; i++)
@@ -289,7 +289,7 @@ ct_memcmp                      (const uint8_t*          a,
  * @param[out] r      Pointer to destination bn384_t
  * @param[in]  bytes  Pointer to 384-byte big-endian input array
  */
-static void
+void
 bn384_from_bytes               (bn384_t*                r,
                                 const uint8_t*          bytes)
 {
@@ -319,7 +319,7 @@ bn384_from_bytes               (bn384_t*                r,
  * @param[out] bytes  Pointer to 384-byte output buffer
  * @param[in]  a      Pointer to source bn384_t
  */
-static void
+void
 bn384_to_bytes                 (uint8_t*                bytes,
                                 const bn384_t*          a)
 {
@@ -345,7 +345,7 @@ bn384_to_bytes                 (uint8_t*                bytes,
  *
  * @param[out] r  Pointer to bn384_t to clear
  */
-static void
+void
 bn384_zero                     (bn384_t*                r)
 {
     secure_memzero(r->d, sizeof(r->d));
@@ -358,7 +358,7 @@ bn384_zero                     (bn384_t*                r)
  * @param[out] r  Pointer to destination bn384_t
  * @param[in]  a  Pointer to source bn384_t
  */
-static void
+void
 bn384_copy                     (bn384_t*                r,
                                 const bn384_t*          a)
 {
@@ -384,7 +384,7 @@ bn384_copy                     (bn384_t*                r,
  * - lt: tracks if a < b has been found in more significant words
  * - mask: prevents earlier differences from being overwritten
  */
-static int
+int
 bn384_cmp                      (const bn384_t*          a,
                                 const bn384_t*          b)
 {
@@ -421,7 +421,7 @@ bn384_cmp                      (const bn384_t*          a,
  * @param[in]  b  Pointer to second operand
  * @return        Carry out (0 or 1)
  */
-static bn_word
+bn_word
 bn384_add                      (bn384_t*                r,
                                 const bn384_t*          a,
                                 const bn384_t*          b)
@@ -457,7 +457,7 @@ bn384_add                      (bn384_t*                r,
  * @param[in] b  Second operand
  * @return       1 if a >= b, 0 if a < b
  */
-static bn_word
+bn_word
 bn384_gte                      (const bn384_t*          a,
                                 const bn384_t*          b)
 {
@@ -488,7 +488,7 @@ bn384_gte                      (const bn384_t*          a,
  * @param[in]  b          Second operand (subtracted if cond is true)
  * @param[in]  cond       Condition: 1 to subtract, 0 to copy a unchanged
  */
-static void
+void
 bn384_cond_sub                 (bn384_t*                r,
                                 const bn384_t*          a,
                                 const bn384_t*          b,
@@ -527,7 +527,7 @@ bn384_cond_sub                 (bn384_t*                r,
  * @param[in] n  Least significant word of the modulus (must be odd)
  * @return       -N^(-1) mod 2^32
  */
-static bn_word
+bn_word
 compute_n0                     (bn_word                 n)
 {
     bn_word                     x;
@@ -557,7 +557,7 @@ compute_n0                     (bn_word                 n)
  *
  * @note The modulus N must be odd (required for Montgomery reduction)
  */
-static void
+void
 bn_mont_init                   (bn_mont_ctx*            ctx,
                                 const bn384_t*          n)
 {
@@ -581,7 +581,7 @@ bn_mont_init                   (bn_mont_ctx*            ctx,
  * @param[out] rr   Pointer to result buffer (R^2 mod N)
  * @param[in]  ctx  Pointer to initialized Montgomery context
  */
-static void
+void
 compute_rr                     (bn384_t*                rr,
                                 const bn_mont_ctx*      ctx)
 {
@@ -628,7 +628,7 @@ compute_rr                     (bn384_t*                rr,
  * After all iterations, t holds a * b * R^(-1) mod N (possibly + N).
  * A final conditional subtraction ensures the result is in [0, N).
  */
-static void
+void
 bn_mont_mul_cios               (bn384_t*                r,
                                 const bn384_t*          a,
                                 const bn384_t*          b,
@@ -729,7 +729,7 @@ bn_mont_mul_cios               (bn384_t*                r,
  * Each iteration divides by 2^32 while maintaining t = a * 2^(-32*i) mod N.
  * After n iterations: t = a * R^(-1) mod N.
  */
-static void
+void
 bn_mont_reduce_only            (bn384_t*                r,
                                 const bn384_t*          a,
                                 const bn_mont_ctx*      ctx)
@@ -820,7 +820,7 @@ bn_mont_reduce_only            (bn384_t*                r,
  *
  * @note Uses constant-time operations throughout
  */
-static int
+int
 pkcs1_v15_verify               (const uint8_t*          decrypted,
                                 const uint8_t*          hash)
 {

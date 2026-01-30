@@ -30,7 +30,7 @@
 /* AES S-box (for key expansion)                                              */
 /*============================================================================*/
 
-static const uint8_t g_sbox[256] =
+const uint8_t g_sbox[256] =
 {
     0x63, 0x7C, 0x77, 0x7B, 0xF2, 0x6B, 0x6F, 0xC5,
     0x30, 0x01, 0x67, 0x2B, 0xFE, 0xD7, 0xAB, 0x76,
@@ -71,7 +71,7 @@ static const uint8_t g_sbox[256] =
 /* AES Inverse S-box (for decryption)                                         */
 /*============================================================================*/
 
-static const uint8_t g_inv_sbox[256] =
+const uint8_t g_inv_sbox[256] =
 {
     0x52, 0x09, 0x6A, 0xD5, 0x30, 0x36, 0xA5, 0x38,
     0xBF, 0x40, 0xA3, 0x9E, 0x81, 0xF3, 0xD7, 0xFB,
@@ -112,7 +112,7 @@ static const uint8_t g_inv_sbox[256] =
 /* Round Constants (for key expansion)                                        */
 /*============================================================================*/
 
-static const uint8_t g_rcon[11] =
+const uint8_t g_rcon[11] =
 {
     0x00,  /* not used */
     0x01, 0x02, 0x04, 0x08, 0x10,
@@ -177,10 +177,38 @@ secure_memcpy                  (void*                   dst,
                                 size_t                  len)
 {
     volatile uint8_t*           d = (volatile uint8_t*)dst;
-    const volatile uint8_t*    s = (const volatile uint8_t*)src;
+    const volatile uint8_t*     s = (const volatile uint8_t*)src;
     size_t                      i;
 
     for (i = 0; i < len; i++)
+    {
+        d[i] = s[i];
+    }
+}
+
+
+/**
+ * @brief Word-level memory copy (32-bit unit, prevents compiler optimization)
+ *
+ * Copies data in 32-bit units using volatile pointers to prevent
+ * the compiler from optimizing away or reordering the copy operation.
+ * Use this for memory regions that only support word (32-bit) writes
+ * (e.g., BRAM on certain embedded SoCs).
+ *
+ * @param[out] dst      Destination buffer (must be 4-byte aligned)
+ * @param[in]  src      Source buffer (must be 4-byte aligned)
+ * @param[in]  n_words  Number of 32-bit words to copy
+ */
+static void
+secure_memcpy32                (void*                   dst,
+                                const void*             src,
+                                size_t                  n_words)
+{
+    volatile uint32_t*          d = (volatile uint32_t*)dst;
+    const volatile uint32_t*    s = (const volatile uint32_t*)src;
+    size_t                      i;
+
+    for (i = 0; i < n_words; i++)
     {
         d[i] = s[i];
     }
@@ -196,7 +224,7 @@ secure_memcpy                  (void*                   dst,
  *
  * Uses Russian peasant multiplication algorithm.
  */
-static uint8_t
+uint8_t
 gf_mul                         (uint8_t                 a,
                                 uint8_t                 b)
 {
@@ -238,7 +266,7 @@ gf_mul                         (uint8_t                 a,
  * @param[out] round_keys  Output buffer for expanded keys (240 bytes)
  * @param[in]  key         Original key (32 bytes)
  */
-static void
+void
 key_expansion                  (uint32_t*               round_keys,
                                 const uint8_t*          key)
 {
@@ -289,7 +317,7 @@ key_expansion                  (uint32_t*               round_keys,
 /**
  * @brief Add round key to state (XOR)
  */
-static void
+void
 add_round_key                  (uint8_t*                state,
                                 const uint32_t*         round_key)
 {
@@ -308,7 +336,7 @@ add_round_key                  (uint8_t*                state,
 /**
  * @brief Inverse SubBytes transformation
  */
-static void
+void
 inv_sub_bytes                  (uint8_t*                state)
 {
     int                         i;
@@ -329,7 +357,7 @@ inv_sub_bytes                  (uint8_t*                state)
  *   [ 2  6 10 14 ]      [ 10 14 2  6 ]
  *   [ 3  7 11 15 ]      [ 7  11 15 3 ]
  */
-static void
+void
 inv_shift_rows                 (uint8_t*                state)
 {
     uint8_t                     temp;
@@ -367,7 +395,7 @@ inv_shift_rows                 (uint8_t*                state)
  *   [0D 09 0E 0B]
  *   [0B 0D 09 0E]
  */
-static void
+void
 inv_mix_columns                (uint8_t*                state)
 {
     uint8_t                     a, b, c, d;
@@ -403,12 +431,13 @@ inv_mix_columns                (uint8_t*                state)
  * @param[in]  ciphertext  Input ciphertext (16 bytes)
  * @param[in]  round_keys  Expanded round keys
  */
-static void
+void
 aes_decrypt_block              (uint8_t*                plaintext,
                                 const uint8_t*          ciphertext,
                                 const uint32_t*         round_keys)
 {
-    uint8_t                     state[16];
+    uint32_t                    state_w[4];
+    uint8_t*                    state = (uint8_t*)state_w;
     int                         round;
 
     /* Copy ciphertext to state */
@@ -431,8 +460,8 @@ aes_decrypt_block              (uint8_t*                plaintext,
     inv_sub_bytes(state);
     add_round_key(state, &round_keys[0]);
 
-    /* Copy state to plaintext */
-    secure_memcpy(plaintext, state, 16);
+    /* Copy state to plaintext (word-level write for bus compatibility) */
+    secure_memcpy32(plaintext, state_w, 4);
 }
 
 
@@ -448,10 +477,11 @@ aes256_cbc_decrypt             (const uint8_t*          p_key,
                                 uint8_t*                p_plaintext)
 {
     uint32_t                    round_keys[KEY_EXP_SIZE];
-    uint8_t                     prev_block[AES256_BLOCK_SIZE];
+    uint32_t                    prev_block_w[AES256_BLOCK_SIZE / 4];
+    uint8_t*                    prev_block = (uint8_t*)prev_block_w;
     uint8_t                     curr_block[AES256_BLOCK_SIZE];
     size_t                      num_blocks;
-    size_t                      i, j;
+    size_t                      i;
 
     /* Parameter validation */
     if ((p_key == NULL) || (p_iv == NULL) ||
@@ -486,9 +516,13 @@ aes256_cbc_decrypt             (const uint8_t*          p_key,
                           round_keys);
 
         /* XOR with previous ciphertext (or IV for first block) */
-        for (j = 0; j < AES256_BLOCK_SIZE; j++)
         {
-            p_plaintext[i * AES256_BLOCK_SIZE + j] ^= prev_block[j];
+            volatile uint32_t*  d32 = (volatile uint32_t*)&p_plaintext[i * AES256_BLOCK_SIZE];
+
+            d32[0] ^= prev_block_w[0];
+            d32[1] ^= prev_block_w[1];
+            d32[2] ^= prev_block_w[2];
+            d32[3] ^= prev_block_w[3];
         }
 
         /* Update previous block for next iteration */
@@ -497,7 +531,7 @@ aes256_cbc_decrypt             (const uint8_t*          p_key,
 
     /* Clear sensitive data from stack */
     secure_memzero(round_keys, sizeof(round_keys));
-    secure_memzero(prev_block, sizeof(prev_block));
+    secure_memzero(prev_block_w, sizeof(prev_block_w));
     secure_memzero(curr_block, sizeof(curr_block));
 
     return AES256_OK;
