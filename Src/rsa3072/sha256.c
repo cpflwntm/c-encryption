@@ -255,20 +255,10 @@ static void
 sha256_transform               (uint32_t                state[8],
                                 const uint8_t           block[64])
 {
-    uint32_t                    W[64];
+    uint32_t                    W[16];
     uint32_t                    a, b, c, d, e, f, g, h;
     uint32_t                    t1, t2;
     int                         i;
-
-    /* Prepare message schedule W[0..63] */
-    for (i = 0; i < 16; i++)
-    {
-        W[i] = load_be32(&block[i * 4]);
-    }
-    for (i = 16; i < 64; i++)
-    {
-        W[i] = SIG1(W[i - 2]) + W[i - 7] + SIG0(W[i - 15]) + W[i - 16];
-    }
 
     /* Initialize working variables with current hash value */
     a = state[0];
@@ -280,10 +270,26 @@ sha256_transform               (uint32_t                state[8],
     g = state[6];
     h = state[7];
 
-    /* Main compression loop (64 rounds) */
+    /* Combined message schedule + compression (64 rounds)
+     *
+     * Rounds 0-15:  Load W[i] from big-endian block
+     * Rounds 16-63: Compute W[i&0xF] on-the-fly using circular buffer
+     *
+     * W[16] circular buffer saves 192 bytes stack vs W[64].
+     * W[i-16] maps to W[i&0xF] which is overwritten with the new value. */
     for (i = 0; i < 64; i++)
     {
-        t1 = h + EP1(e) + CH(e, f, g) + K[i] + W[i];
+        if (i < 16)
+        {
+            W[i] = load_be32(&block[i * 4]);
+        }
+        else
+        {
+            W[i & 0x0F] = SIG1(W[(i - 2) & 0x0F]) + W[(i - 7) & 0x0F] +
+                           SIG0(W[(i - 15) & 0x0F]) + W[i & 0x0F];
+        }
+
+        t1 = h + EP1(e) + CH(e, f, g) + K[i] + W[i & 0x0F];
         t2 = EP0(a) + MAJ(a, b, c);
         h = g;
         g = f;

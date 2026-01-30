@@ -13,7 +13,7 @@
  * - Constant-time comparison for security
  *
  * @note Code size: ~3.4 KB (ARM Thumb-2, -Os) including SHA-256
- * @note Stack usage: ~3.2 KB (BigNum temporaries + SHA-256 context)
+ * @note Stack usage: ~1.7 KB (CIOS Montgomery + SHA-256 context)
  * @note No dynamic memory allocation
  */
 
