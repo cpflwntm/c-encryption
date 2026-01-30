@@ -10,7 +10,6 @@
  */
 
 #include "sha256.h"
-#include <string.h>
 
 
 /*============================================================================*/
@@ -180,6 +179,39 @@ secure_memzero                 (void*                   ptr,
 
 
 /**
+ * @brief Constant-time memory copy (prevents compiler optimization)
+ *
+ * Copies data from source to destination using volatile pointers to prevent
+ * the compiler from optimizing away or reordering the copy operation.
+ * Executes in constant time regardless of data content.
+ *
+ * @param[out] dst  Destination buffer
+ * @param[in]  src  Source buffer
+ * @param[in]  len  Number of bytes to copy
+ *
+ * WHY NOT STANDARD memcpy():
+ * 1. C library dependency causes HardFault in swappable code sections
+ *    (veneer calls may not be accessible from swapped iRAM region)
+ * 2. Compiler may optimize or reorder memcpy in unexpected ways
+ * 3. Self-contained implementation ensures no external symbol dependency
+ */
+static void
+secure_memcpy                  (void*                   dst,
+                                const void*             src,
+                                size_t                  len)
+{
+    volatile uint8_t*           d = (volatile uint8_t*)dst;
+    const volatile uint8_t*    s = (const volatile uint8_t*)src;
+    size_t                      i;
+
+    for (i = 0; i < len; i++)
+    {
+        d[i] = s[i];
+    }
+}
+
+
+/**
  * @brief Load 32-bit value from big-endian byte array
  *
  * @param[in] p  Pointer to 4-byte big-endian array
@@ -282,7 +314,7 @@ sha256_transform               (uint32_t                state[8],
 void
 sha256_init                    (sha256_ctx*             ctx)
 {
-    memcpy(ctx->state, H0, sizeof(H0));
+    secure_memcpy(ctx->state, H0, sizeof(H0));
     ctx->count[0] = 0;
     ctx->count[1] = 0;
 }
@@ -340,7 +372,7 @@ sha256_final                   (sha256_ctx*             ctx,
     pad_len = (idx < 56) ? (56 - idx) : (120 - idx);
 
     /* Apply padding: 0x80 followed by zeros */
-    memset(pad, 0, sizeof(pad));
+    secure_memzero(pad, sizeof(pad));
     pad[0] = 0x80;
     sha256_update(ctx, pad, pad_len);
 

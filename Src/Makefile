@@ -40,7 +40,6 @@ TARGET = openssl_test
 # Minimal RSA3072 source files
 RSA3072_SRC = \
     $(RSA3072_DIR)/rsa3072.c \
-    $(RSA3072_DIR)/bn384.c \
     $(RSA3072_DIR)/sha256.c
 
 RSA3072_OBJ = $(RSA3072_SRC:.c=.o)

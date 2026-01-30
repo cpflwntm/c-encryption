@@ -7,7 +7,6 @@
  */
 
 #include "aes256cbc.h"
-#include <string.h>
 
 
 /*============================================================================*/
@@ -157,6 +156,33 @@ secure_memzero                 (void*                   ptr,
          * even at -O3 optimization level.
          */
         p[i] = 0;
+    }
+}
+
+
+/**
+ * @brief Constant-time memory copy (prevents compiler optimization)
+ *
+ * Copies data from source to destination using volatile pointers to prevent
+ * the compiler from optimizing away or reordering the copy operation.
+ * Executes in constant time regardless of data content.
+ *
+ * @param[out] dst  Destination buffer
+ * @param[in]  src  Source buffer
+ * @param[in]  len  Number of bytes to copy
+ */
+static void
+secure_memcpy                  (void*                   dst,
+                                const void*             src,
+                                size_t                  len)
+{
+    volatile uint8_t*           d = (volatile uint8_t*)dst;
+    const volatile uint8_t*    s = (const volatile uint8_t*)src;
+    size_t                      i;
+
+    for (i = 0; i < len; i++)
+    {
+        d[i] = s[i];
     }
 }
 
@@ -386,7 +412,7 @@ aes_decrypt_block              (uint8_t*                plaintext,
     int                         round;
 
     /* Copy ciphertext to state */
-    memcpy(state, ciphertext, 16);
+    secure_memcpy(state, ciphertext, 16);
 
     /* Initial round key addition (round NR) */
     add_round_key(state, &round_keys[NR * NB]);
@@ -406,7 +432,7 @@ aes_decrypt_block              (uint8_t*                plaintext,
     add_round_key(state, &round_keys[0]);
 
     /* Copy state to plaintext */
-    memcpy(plaintext, state, 16);
+    secure_memcpy(plaintext, state, 16);
 }
 
 
@@ -444,7 +470,7 @@ aes256_cbc_decrypt             (const uint8_t*          p_key,
     key_expansion(round_keys, p_key);
 
     /* Initialize previous block with IV */
-    memcpy(prev_block, p_iv, AES256_BLOCK_SIZE);
+    secure_memcpy(prev_block, p_iv, AES256_BLOCK_SIZE);
 
     /* Process each block */
     num_blocks = len / AES256_BLOCK_SIZE;
@@ -452,7 +478,7 @@ aes256_cbc_decrypt             (const uint8_t*          p_key,
     for (i = 0; i < num_blocks; i++)
     {
         /* Save current ciphertext block (needed for XOR with next block) */
-        memcpy(curr_block, &p_ciphertext[i * AES256_BLOCK_SIZE], AES256_BLOCK_SIZE);
+        secure_memcpy(curr_block, &p_ciphertext[i * AES256_BLOCK_SIZE], AES256_BLOCK_SIZE);
 
         /* Decrypt block */
         aes_decrypt_block(&p_plaintext[i * AES256_BLOCK_SIZE],
@@ -466,7 +492,7 @@ aes256_cbc_decrypt             (const uint8_t*          p_key,
         }
 
         /* Update previous block for next iteration */
-        memcpy(prev_block, curr_block, AES256_BLOCK_SIZE);
+        secure_memcpy(prev_block, curr_block, AES256_BLOCK_SIZE);
     }
 
     /* Clear sensitive data from stack */

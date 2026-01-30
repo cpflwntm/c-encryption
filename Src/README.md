@@ -35,8 +35,7 @@ Src/
 ├── main.c                  # 통합 테스트 프로그램
 ├── Makefile                # GCC 테스트 빌드
 ├── rsa3072/                # RSA 3072 라이브러리
-│   ├── rsa3072.h/c         # 서명 검증
-│   ├── bn384.h/c           # BigNum 연산 (Montgomery 곱셈)
+│   ├── rsa3072.h/c         # 서명 검증 (BigNum/Montgomery 연산 포함)
 │   └── sha256.h/c          # SHA-256
 ├── aes256cbc/              # AES-256-CBC 라이브러리
 │   └── aes256cbc.h/c       # 복호화 구현

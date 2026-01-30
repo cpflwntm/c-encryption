@@ -47,7 +47,6 @@ C_INCLUDE   = -I$(RSA3072_DIR) -I$(AES256CBC_DIR)
 
 RSA3072_SRC = \
     $(RSA3072_DIR)\rsa3072.c \
-    $(RSA3072_DIR)\bn384.c \
     $(RSA3072_DIR)\sha256.c
 
 AES256CBC_SRC = \
@@ -55,7 +54,6 @@ AES256CBC_SRC = \
 
 RSA3072_OBJ = \
     $(OBJ_DIR)\rsa3072.o \
-    $(OBJ_DIR)\bn384.o \
     $(OBJ_DIR)\sha256.o
 
 AES256CBC_OBJ = \
@@ -109,10 +107,6 @@ $(AES256CBC_LIB): $(AES256CBC_OBJ) | $(LIB_DIR) $(INTERMEDIATE_DIR)
 #------------------------------------------------------------------------------
 
 $(OBJ_DIR)\rsa3072.o: $(RSA3072_DIR)\rsa3072.c | $(OBJ_DIR) $(INTERMEDIATE_DIR)
-	$(info Compiling - $<)
-	@$(COMPILE) $(C_FLAGS) $< -o $@
-
-$(OBJ_DIR)\bn384.o: $(RSA3072_DIR)\bn384.c | $(OBJ_DIR) $(INTERMEDIATE_DIR)
 	$(info Compiling - $<)
 	@$(COMPILE) $(C_FLAGS) $< -o $@
 

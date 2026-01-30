@@ -5,18 +5,101 @@
  * RSA-SHA256 signature verification with PKCS#1 v1.5 padding.
  * Size-optimized implementation for embedded systems.
  *
+ * Includes integrated BigNum (3072-bit) arithmetic with Montgomery
+ * multiplication. All internal operations use constant-time algorithms
+ * to prevent timing side-channel attacks.
+ *
  * @note Uses constant-time comparison to prevent timing attacks
  * @note Clears all sensitive data from stack before returning
+ * @note No C library dependency (no memcpy/memset/string.h)
  */
 
 #include "rsa3072.h"
-#include "bn384.h"
 #include "sha256.h"
-#include <string.h>
 
 
 /*============================================================================*/
-/* Constants                                                                  */
+/* BigNum Constants                                                           */
+/*============================================================================*/
+
+/**
+ * @def BN_BYTES
+ * @brief Size of RSA 3072 operands in bytes (3072 bits / 8)
+ */
+#define BN_BYTES    384
+
+/**
+ * @def BN_WORDS
+ * @brief Size of RSA 3072 operands in 32-bit words (384 bytes / 4)
+ */
+#define BN_WORDS    96
+
+/**
+ * @def BN_BITS
+ * @brief Size of RSA 3072 operands in bits
+ */
+#define BN_BITS     3072
+
+/**
+ * @def BN2_WORDS
+ * @brief Size of double-width result (for multiplication) in 32-bit words
+ */
+#define BN2_WORDS   192
+
+
+/*============================================================================*/
+/* BigNum Types                                                               */
+/*============================================================================*/
+
+/**
+ * @typedef bn_word
+ * @brief Single-precision word type (32-bit unsigned)
+ */
+typedef uint32_t bn_word;
+
+/**
+ * @typedef bn_dword
+ * @brief Double-precision word type for intermediate calculations (64-bit unsigned)
+ */
+typedef uint64_t bn_dword;
+
+/**
+ * @struct bn384_t
+ * @brief 384-byte (3072-bit) big number
+ *
+ * Stores a 3072-bit unsigned integer in little-endian word order.
+ * d[0] is the least significant word, d[95] is the most significant word.
+ */
+typedef struct {
+    bn_word d[BN_WORDS];    /**< Array of 32-bit words (little-endian order) */
+} bn384_t;
+
+/**
+ * @struct bn768_t
+ * @brief 768-byte (6144-bit) big number for multiplication results
+ *
+ * Stores the double-width result of 384-byte multiplication.
+ */
+typedef struct {
+    bn_word d[BN2_WORDS];   /**< Array of 32-bit words (little-endian order) */
+} bn768_t;
+
+/**
+ * @struct bn_mont_ctx
+ * @brief Montgomery multiplication context
+ *
+ * Precomputed values for efficient Montgomery modular multiplication.
+ * Must be initialized with bn_mont_init() before use.
+ */
+typedef struct {
+    bn384_t n;      /**< Modulus N */
+    bn384_t rr;     /**< R^2 mod N (for Montgomery domain conversion) */
+    bn_word n0;     /**< -N^(-1) mod 2^32 (Montgomery constant) */
+} bn_mont_ctx;
+
+
+/*============================================================================*/
+/* RSA Constants                                                              */
 /*============================================================================*/
 
 /**
@@ -72,7 +155,7 @@ static const uint8_t SHA256_DIGEST_INFO[19] = {
 
 
 /*============================================================================*/
-/* Internal Functions                                                         */
+/* Internal Utility Functions                                                 */
 /*============================================================================*/
 
 /**
@@ -132,35 +215,45 @@ static void
 secure_memzero                 (void*                   ptr,
                                 size_t                  len)
 {
-    /*
-     * Cast to volatile uint8_t pointer.
-     *
-     * 'volatile' qualifier on the POINTER means:
-     * - Each dereference (*p) is a genuine memory access
-     * - The compiler cannot assume *p has any particular value
-     * - The compiler cannot skip any write to *p
-     *
-     * Note: 'volatile uint8_t* p' means "pointer to volatile uint8_t"
-     *       NOT "volatile pointer to uint8_t"
-     *
-     * Each byte is written individually to ensure complete clearing
-     * even if the compiler tries to optimize multi-byte operations.
-     */
     volatile uint8_t*           p = (volatile uint8_t*)ptr;
     size_t                      i;
 
     for (i = 0; i < len; i++)
     {
-        /*
-         * This write CANNOT be optimized away because:
-         * 1. p is a volatile pointer
-         * 2. The compiler must assume something else might read *p
-         * 3. Every iteration produces a real memory store instruction
-         *
-         * Assembly output will show actual store instructions
-         * even at -O3 optimization level.
-         */
         p[i] = 0;
+    }
+}
+
+
+/**
+ * @brief Constant-time memory copy (prevents compiler optimization)
+ *
+ * Copies data from source to destination using volatile pointers to prevent
+ * the compiler from optimizing away or reordering the copy operation.
+ * Executes in constant time regardless of data content.
+ *
+ * @param[out] dst  Destination buffer
+ * @param[in]  src  Source buffer
+ * @param[in]  len  Number of bytes to copy
+ *
+ * WHY NOT STANDARD memcpy():
+ * 1. C library dependency causes HardFault in swappable code sections
+ *    (veneer calls may not be accessible from swapped iRAM region)
+ * 2. Compiler may optimize or reorder memcpy in unexpected ways
+ * 3. Self-contained implementation ensures no external symbol dependency
+ */
+static void
+secure_memcpy                  (void*                   dst,
+                                const void*             src,
+                                size_t                  len)
+{
+    volatile uint8_t*           d = (volatile uint8_t*)dst;
+    const volatile uint8_t*    s = (const volatile uint8_t*)src;
+    size_t                      i;
+
+    for (i = 0; i < len; i++)
+    {
+        d[i] = s[i];
     }
 }
 
@@ -196,6 +289,642 @@ ct_memcmp                      (const uint8_t*          a,
     return (int)diff;
 }
 
+
+/*============================================================================*/
+/* BigNum Basic Operations                                                    */
+/*============================================================================*/
+
+/**
+ * @brief Convert big-endian byte array to bn384_t
+ *
+ * Converts a 384-byte big-endian byte array to internal little-endian
+ * word representation.
+ *
+ * @param[out] r      Pointer to destination bn384_t
+ * @param[in]  bytes  Pointer to 384-byte big-endian input array
+ */
+static void
+bn384_from_bytes               (bn384_t*                r,
+                                const uint8_t*          bytes)
+{
+    int                         i;
+    int                         j;
+
+    /* Convert big-endian bytes to little-endian words
+     * bytes[0..3]   -> d[95] (MSW)
+     * bytes[380..383] -> d[0]  (LSW) */
+    for (i = 0; i < BN_WORDS; i++)
+    {
+        j = (BN_WORDS - 1 - i) * 4;
+        r->d[i] = ((bn_word)bytes[j + 0] << 24) |
+                  ((bn_word)bytes[j + 1] << 16) |
+                  ((bn_word)bytes[j + 2] << 8)  |
+                  ((bn_word)bytes[j + 3]);
+    }
+}
+
+
+/**
+ * @brief Convert bn384_t to big-endian byte array
+ *
+ * Converts internal little-endian word representation to a 384-byte
+ * big-endian byte array.
+ *
+ * @param[out] bytes  Pointer to 384-byte output buffer
+ * @param[in]  a      Pointer to source bn384_t
+ */
+static void
+bn384_to_bytes                 (uint8_t*                bytes,
+                                const bn384_t*          a)
+{
+    int                         i;
+    int                         j;
+
+    /* Convert little-endian words to big-endian bytes
+     * d[95] (MSW) -> bytes[0..3]
+     * d[0]  (LSW) -> bytes[380..383] */
+    for (i = 0; i < BN_WORDS; i++)
+    {
+        j = (BN_WORDS - 1 - i) * 4;
+        bytes[j + 0] = (uint8_t)(a->d[i] >> 24);
+        bytes[j + 1] = (uint8_t)(a->d[i] >> 16);
+        bytes[j + 2] = (uint8_t)(a->d[i] >> 8);
+        bytes[j + 3] = (uint8_t)(a->d[i]);
+    }
+}
+
+
+/**
+ * @brief Set big number to zero
+ *
+ * @param[out] r  Pointer to bn384_t to clear
+ */
+static void
+bn384_zero                     (bn384_t*                r)
+{
+    secure_memzero(r->d, sizeof(r->d));
+}
+
+
+/**
+ * @brief Copy big number
+ *
+ * @param[out] r  Pointer to destination bn384_t
+ * @param[in]  a  Pointer to source bn384_t
+ */
+static void
+bn384_copy                     (bn384_t*                r,
+                                const bn384_t*          a)
+{
+    secure_memcpy(r->d, a->d, sizeof(r->d));
+}
+
+
+/**
+ * @brief Compare two big numbers
+ *
+ * @param[in] a  Pointer to first operand
+ * @param[in] b  Pointer to second operand
+ * @return       -1 if a < b, 0 if a == b, 1 if a > b
+ *
+ * CONSTANT-TIME COMPARISON (Side-Channel Attack Prevention)
+ * =========================================================
+ *
+ * Process ALL words regardless of where differences occur.
+ * Use bitwise operations that compile to branch-free code.
+ *
+ * ALGORITHM (gt/lt/mask accumulator pattern):
+ * - gt: tracks if a > b has been found in more significant words
+ * - lt: tracks if a < b has been found in more significant words
+ * - mask: prevents earlier differences from being overwritten
+ */
+static int
+bn384_cmp                      (const bn384_t*          a,
+                                const bn384_t*          b)
+{
+    int                         i;
+    bn_word                     gt;
+    bn_word                     lt;
+    bn_word                     mask;
+
+    gt = 0;
+    lt = 0;
+
+    for (i = BN_WORDS - 1; i >= 0; i--)
+    {
+        mask = ~(gt | lt) & 1;
+        gt |= ((a->d[i] > b->d[i]) & mask);
+        lt |= ((a->d[i] < b->d[i]) & mask);
+    }
+
+    return (int)gt - (int)lt;
+}
+
+
+/*============================================================================*/
+/* BigNum Arithmetic Operations                                               */
+/*============================================================================*/
+
+/**
+ * @brief Big number addition
+ *
+ * Computes r = a + b with carry propagation.
+ *
+ * @param[out] r  Pointer to result (may alias a or b)
+ * @param[in]  a  Pointer to first operand
+ * @param[in]  b  Pointer to second operand
+ * @return        Carry out (0 or 1)
+ */
+static bn_word
+bn384_add                      (bn384_t*                r,
+                                const bn384_t*          a,
+                                const bn384_t*          b)
+{
+    int                         i;
+    bn_dword                    sum;
+    bn_word                     carry;
+
+    carry = 0;
+
+    for (i = 0; i < BN_WORDS; i++)
+    {
+        sum = (bn_dword)a->d[i] + (bn_dword)b->d[i] + carry;
+        r->d[i] = (bn_word)sum;
+        carry = (bn_word)(sum >> 32);
+    }
+
+    return carry;
+}
+
+
+/**
+ * @brief Big number subtraction
+ *
+ * Computes r = a - b with borrow propagation.
+ *
+ * @param[out] r  Pointer to result (may alias a or b)
+ * @param[in]  a  Pointer to first operand
+ * @param[in]  b  Pointer to second operand
+ * @return        Borrow out (0 or 1)
+ */
+static bn_word
+bn384_sub                      (bn384_t*                r,
+                                const bn384_t*          a,
+                                const bn384_t*          b)
+{
+    int                         i;
+    bn_dword                    diff;
+    bn_word                     borrow;
+
+    borrow = 0;
+
+    for (i = 0; i < BN_WORDS; i++)
+    {
+        diff = (bn_dword)a->d[i] - (bn_dword)b->d[i] - borrow;
+        r->d[i] = (bn_word)diff;
+        borrow = (diff >> 32) & 1;
+    }
+
+    return borrow;
+}
+
+
+/**
+ * @brief Big number multiplication
+ *
+ * Computes r = a * b using schoolbook multiplication algorithm.
+ * Result is 768 bytes (double width).
+ *
+ * @param[out] r  Pointer to 768-byte result
+ * @param[in]  a  Pointer to first operand
+ * @param[in]  b  Pointer to second operand
+ *
+ * @note r must not alias a or b
+ */
+static void
+bn384_mul                      (bn768_t*                r,
+                                const bn384_t*          a,
+                                const bn384_t*          b)
+{
+    int                         i;
+    int                         j;
+    bn_dword                    uv;
+    bn_word                     carry;
+
+    /* Initialize result to zero */
+    secure_memzero(r->d, sizeof(r->d));
+
+    /* Schoolbook multiplication: O(n^2)
+     * For each word a[i], multiply by all words of b and accumulate */
+    for (i = 0; i < BN_WORDS; i++)
+    {
+        carry = 0;
+
+        for (j = 0; j < BN_WORDS; j++)
+        {
+            /* uv = a[i] * b[j] + r[i+j] + carry */
+            uv = (bn_dword)a->d[i] * (bn_dword)b->d[j] +
+                 (bn_dword)r->d[i + j] + carry;
+            r->d[i + j] = (bn_word)uv;
+            carry = (bn_word)(uv >> 32);
+        }
+
+        r->d[i + BN_WORDS] = carry;
+    }
+}
+
+
+/*============================================================================*/
+/* Constant-Time Helper Functions (Side-Channel Attack Prevention)            */
+/*============================================================================*/
+
+/**
+ * @brief Constant-time greater-than-or-equal comparison
+ *
+ * Returns 1 if a >= b, 0 otherwise. This function executes in constant time
+ * regardless of the input values.
+ *
+ * @param[in] a  First operand
+ * @param[in] b  Second operand
+ * @return       1 if a >= b, 0 if a < b
+ */
+static bn_word
+bn384_gte                      (const bn384_t*          a,
+                                const bn384_t*          b)
+{
+    int                         i;
+    bn_dword                    diff;
+    bn_word                     borrow;
+
+    borrow = 0;
+
+    for (i = 0; i < BN_WORDS; i++)
+    {
+        diff = (bn_dword)a->d[i] - (bn_dword)b->d[i] - borrow;
+        borrow = (diff >> 32) & 1;
+    }
+
+    return borrow ^ 1;
+}
+
+
+/**
+ * @brief Constant-time conditional subtraction
+ *
+ * Computes r = a - b if condition is true, r = a if condition is false.
+ * Executes in constant time regardless of the condition value.
+ *
+ * @param[out] r          Result (may alias a, but not b)
+ * @param[in]  a          First operand
+ * @param[in]  b          Second operand (subtracted if cond is true)
+ * @param[in]  cond       Condition: 1 to subtract, 0 to copy a unchanged
+ */
+static void
+bn384_cond_sub                 (bn384_t*                r,
+                                const bn384_t*          a,
+                                const bn384_t*          b,
+                                bn_word                 cond)
+{
+    int                         i;
+    bn_dword                    diff;
+    bn_word                     borrow;
+    bn_word                     mask;
+    bn_word                     sub_word;
+
+    mask = 0 - cond;
+    borrow = 0;
+
+    for (i = 0; i < BN_WORDS; i++)
+    {
+        diff = (bn_dword)a->d[i] - (bn_dword)b->d[i] - borrow;
+        sub_word = (bn_word)diff;
+        borrow = (diff >> 32) & 1;
+
+        r->d[i] = (sub_word & mask) | (a->d[i] & ~mask);
+    }
+}
+
+
+/*============================================================================*/
+/* Montgomery Operations                                                      */
+/*============================================================================*/
+
+/**
+ * @brief Compute Montgomery constant n0 = -N^(-1) mod 2^32
+ *
+ * Uses Newton's method to compute the modular inverse.
+ * The iteration x = x * (2 - n * x) converges quadratically.
+ *
+ * @param[in] n  Least significant word of the modulus (must be odd)
+ * @return       -N^(-1) mod 2^32
+ */
+static bn_word
+compute_n0                     (bn_word                 n)
+{
+    bn_word                     x;
+    int                         i;
+
+    /* Newton iteration: x_{i+1} = x_i * (2 - n * x_i) mod 2^32
+     * Starting with x_0 = 1, converges in 5 iterations for 32-bit */
+    x = 1;
+    for (i = 0; i < 5; i++)
+    {
+        x = x * (2 - n * x);
+    }
+
+    /* Return -x mod 2^32 = (0 - x) with unsigned wraparound */
+    return (bn_word)(0 - x);
+}
+
+
+/**
+ * @brief Montgomery reduction
+ *
+ * Computes r = t * R^(-1) mod N where R = 2^3072.
+ * Uses the CIOS (Coarsely Integrated Operand Scanning) method.
+ *
+ * @param[out]    r    Pointer to 384-byte result
+ * @param[in,out] t    Pointer to 768-byte input (modified during computation)
+ * @param[in]     ctx  Pointer to Montgomery context
+ */
+static void
+bn_mont_reduce                 (bn384_t*                r,
+                                bn768_t*                t,
+                                const bn_mont_ctx*      ctx)
+{
+    int                         i;
+    int                         j;
+    bn_dword                    uv;
+    bn_word                     m;
+    bn_word                     carry;
+    bn_word                     overflow;
+
+    overflow = 0;
+
+    /* Montgomery reduction loop:
+     * For i = 0 to n-1:
+     *   m = t[i] * n0 mod 2^32
+     *   t = t + m * N * 2^(32*i)
+     * Result is in upper half of t */
+    for (i = 0; i < BN_WORDS; i++)
+    {
+        /* Compute quotient digit: m = t[i] * n0 mod 2^32 */
+        m = t->d[i] * ctx->n0;
+
+        /* Add m * N shifted by i words: t = t + m * N * 2^(32*i) */
+        carry = 0;
+        for (j = 0; j < BN_WORDS; j++)
+        {
+            uv = (bn_dword)m * (bn_dword)ctx->n.d[j] +
+                 (bn_dword)t->d[i + j] + carry;
+            t->d[i + j] = (bn_word)uv;
+            carry = (bn_word)(uv >> 32);
+        }
+
+        /* Propagate carry through remaining words */
+        for (j = i + BN_WORDS; j < BN2_WORDS && carry; j++)
+        {
+            uv = (bn_dword)t->d[j] + carry;
+            t->d[j] = (bn_word)uv;
+            carry = (bn_word)(uv >> 32);
+        }
+
+        /* Track overflow into word 192 (which we cannot store) */
+        overflow |= carry;
+    }
+
+    /* Copy upper half of t to result: r = t[n..2n-1] */
+    for (i = 0; i < BN_WORDS; i++)
+    {
+        r->d[i] = t->d[i + BN_WORDS];
+    }
+
+    /* Constant-time conditional subtraction:
+     * If r >= N, subtract N without branching */
+    {
+        bn_word                 subtract_needed;
+
+        subtract_needed = overflow | bn384_gte(r, &ctx->n);
+        bn384_cond_sub(r, r, &ctx->n, subtract_needed);
+    }
+}
+
+
+/**
+ * @brief Initialize Montgomery context for a modulus
+ *
+ * Precomputes Montgomery constants for efficient modular multiplication.
+ * This function is called once per modulus.
+ *
+ * @param[out] ctx  Pointer to context to initialize
+ * @param[in]  n    Pointer to odd modulus N (must be > 1)
+ *
+ * @note The modulus N must be odd (required for Montgomery reduction)
+ * @note This operation is relatively expensive (~6144 modular doublings)
+ */
+static void
+bn_mont_init                   (bn_mont_ctx*            ctx,
+                                const bn384_t*          n)
+{
+    int                         i;
+    bn_word                     carry;
+
+    /* Copy modulus N to context */
+    bn384_copy(&ctx->n, n);
+
+    /* Compute n0 = -N^(-1) mod 2^32 */
+    ctx->n0 = compute_n0(n->d[0]);
+
+    /*
+     * Compute R^2 mod N where R = 2^3072
+     *
+     * Method: Start with rr = 1, then double it 2*3072 = 6144 times
+     * while reducing mod N each time.
+     *
+     * After 3072 doublings: rr = 2^3072 mod N = R mod N
+     * After 6144 doublings: rr = 2^6144 mod N = R^2 mod N
+     */
+    bn384_zero(&ctx->rr);
+    ctx->rr.d[0] = 1;
+
+    for (i = 0; i < BN_BITS * 2; i++)
+    {
+        bn_word                 subtract_needed;
+
+        /* rr = rr * 2 (double) */
+        carry = bn384_add(&ctx->rr, &ctx->rr, &ctx->rr);
+
+        /* Constant-time conditional subtraction */
+        subtract_needed = carry | bn384_gte(&ctx->rr, &ctx->n);
+        bn384_cond_sub(&ctx->rr, &ctx->rr, &ctx->n, subtract_needed);
+    }
+}
+
+
+/**
+ * @brief Montgomery multiplication
+ *
+ * Computes r = a * b * R^(-1) mod N where R = 2^3072.
+ * Both inputs must be in Montgomery form (pre-multiplied by R mod N).
+ *
+ * @param[out] r    Pointer to result in Montgomery form
+ * @param[in]  a    Pointer to first operand in Montgomery form
+ * @param[in]  b    Pointer to second operand in Montgomery form
+ * @param[in]  ctx  Pointer to initialized Montgomery context
+ */
+static void
+bn_mont_mul                    (bn384_t*                r,
+                                const bn384_t*          a,
+                                const bn384_t*          b,
+                                const bn_mont_ctx*      ctx)
+{
+    bn768_t                     t;
+
+    /* t = a * b (768-byte result) */
+    bn384_mul(&t, a, b);
+
+    /* r = t * R^(-1) mod N (Montgomery reduction) */
+    bn_mont_reduce(r, &t, ctx);
+}
+
+
+/**
+ * @brief Montgomery squaring
+ *
+ * Computes r = a^2 * R^(-1) mod N.
+ * Equivalent to bn_mont_mul(r, a, a, ctx) but potentially optimizable.
+ *
+ * @param[out] r    Pointer to result in Montgomery form
+ * @param[in]  a    Pointer to operand in Montgomery form
+ * @param[in]  ctx  Pointer to initialized Montgomery context
+ */
+static void
+bn_mont_sqr                    (bn384_t*                r,
+                                const bn384_t*          a,
+                                const bn_mont_ctx*      ctx)
+{
+    /* For simplicity, squaring uses general multiplication
+     * (Could be optimized to ~1.5x faster with dedicated squaring) */
+    bn_mont_mul(r, a, a, ctx);
+}
+
+
+/**
+ * @brief Convert to Montgomery form
+ *
+ * Computes r = a * R mod N (converts normal integer to Montgomery form).
+ *
+ * @param[out] r    Pointer to result in Montgomery form
+ * @param[in]  a    Pointer to input in normal form
+ * @param[in]  ctx  Pointer to initialized Montgomery context
+ */
+static void
+bn_to_mont                     (bn384_t*                r,
+                                const bn384_t*          a,
+                                const bn_mont_ctx*      ctx)
+{
+    /* Convert to Montgomery form: r = a * R mod N
+     * Use the identity: a * R mod N = a * R^2 * R^(-1) mod N
+     * So: r = Montgomery_Mul(a, R^2) */
+    bn_mont_mul(r, a, &ctx->rr, ctx);
+}
+
+
+/**
+ * @brief Convert from Montgomery form
+ *
+ * Computes r = a * R^(-1) mod N (converts Montgomery form to normal integer).
+ *
+ * @param[out] r    Pointer to result in normal form
+ * @param[in]  a    Pointer to input in Montgomery form
+ * @param[in]  ctx  Pointer to initialized Montgomery context
+ */
+static void
+bn_from_mont                   (bn384_t*                r,
+                                const bn384_t*          a,
+                                const bn_mont_ctx*      ctx)
+{
+    bn768_t                     t;
+    int                         i;
+
+    /* Convert from Montgomery form: r = a * R^(-1) mod N
+     * Treat a as a 768-byte number (padded with zeros) and reduce */
+
+    /* t = a padded to 768 bytes */
+    for (i = 0; i < BN_WORDS; i++)
+    {
+        t.d[i] = a->d[i];
+    }
+    for (i = BN_WORDS; i < BN2_WORDS; i++)
+    {
+        t.d[i] = 0;
+    }
+
+    /* r = t * R^(-1) mod N */
+    bn_mont_reduce(r, &t, ctx);
+}
+
+
+/**
+ * @brief Modular exponentiation with fixed exponent E = 65537
+ *
+ * Computes r = a^65537 mod N using Montgomery multiplication.
+ * Optimized for the common RSA public exponent 65537 (0x10001 = 2^16 + 1).
+ *
+ * Algorithm uses only 16 squarings + 1 multiplication:
+ * - 65537 = 2^16 + 1
+ * - a^65537 = a^(2^16) * a = square 16 times, then multiply by a
+ *
+ * @param[out] r    Pointer to result (a^65537 mod N)
+ * @param[in]  a    Pointer to base (must satisfy 0 <= a < N)
+ * @param[in]  ctx  Pointer to initialized Montgomery context
+ *
+ * @note Input a must be less than modulus N
+ * @note Result r may alias input a
+ */
+static void
+bn_modexp_e65537               (bn384_t*                r,
+                                const bn384_t*          a,
+                                const bn_mont_ctx*      ctx)
+{
+    bn384_t                     x;
+    bn384_t                     a_mont;  /* for backup */
+    int                         i;
+
+    /* Convert base a to Montgomery form: a_mont = a * R mod N */
+    bn_to_mont(&a_mont, a, ctx);
+
+    /* Copy a's Montgomery form to x */
+    bn384_copy(&x, &a_mont);
+
+    /* Compute a^65537 mod N using square-and-multiply
+     *
+     * 65537 = 0x10001 = 2^16 + 1 (binary: 1_0000_0000_0000_0001)
+     *
+     * Algorithm:
+     *   x = a
+     *   for i = 0 to 15:
+     *       x = x^2 mod N       // 16 squarings
+     *   x = x * a mod N         // 1 multiplication
+     */
+
+    /* Perform 16 squarings: x = a^(2^16) in Montgomery form */
+    for (i = 0; i < 16; i++)
+    {
+        bn_mont_sqr(&x, &x, ctx);
+    }
+
+    /* Final multiplication by original a (in Montgomery form) */
+    bn_mont_mul(&x, &x, &a_mont, ctx);
+
+    /* Convert result back from Montgomery form: r = x * R^(-1) mod N */
+    bn_from_mont(r, &x, ctx);
+}
+
+
+/*============================================================================*/
+/* PKCS#1 Verification                                                        */
+/*============================================================================*/
 
 /**
  * @brief Verify PKCS#1 v1.5 padding structure

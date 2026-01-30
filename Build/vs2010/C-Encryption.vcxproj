@@ -22,13 +22,11 @@
   <ItemGroup>
     <ClCompile Include="..\..\Src\aes256cbc\aes256cbc.c" />
     <ClCompile Include="..\..\Src\main.c" />
-    <ClCompile Include="..\..\Src\rsa3072\bn384.c" />
     <ClCompile Include="..\..\Src\rsa3072\rsa3072.c" />
     <ClCompile Include="..\..\Src\rsa3072\sha256.c" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Src\aes256cbc\aes256cbc.h" />
-    <ClInclude Include="..\..\Src\rsa3072\bn384.h" />
     <ClInclude Include="..\..\Src\rsa3072\rsa3072.h" />
     <ClInclude Include="..\..\Src\rsa3072\sha256.h" />
   </ItemGroup>
